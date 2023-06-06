@@ -21,7 +21,15 @@
 #define	ET_DYN	3	//Shared object file 
 #define	ET_CORE	4	//Core file 
 
-#define SHT_SYMTAB 0x3
+#define SHT_SYMTAB 0x2
+#define SHT_STRTAB 0x3
+#define STB_GLOBAL 1
+#define STB_LOCAL 0
+
+/*
+TO DO:
+find the name of the symbol from strtab
+*/ 
 
 
 /* symbol_name		- The symbol (maybe function) we need to search for.
@@ -38,6 +46,7 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	filePointer = fopen(exe_file_name, "r");
 	if (filePointer==NULL) {
 		printf("failed to open");
+		fclose(filePointer);
 		return 0;
 	}
 	Elf64_Ehdr header;
@@ -48,6 +57,7 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	currentLocation += sizeof(header.e_type);
 	if(header.e_type != ET_EXEC){
 		*error_val = -3;
+		fclose(filePointer);
 		return -3;
 	}
 	fseek(filePointer, 22, currentLocation); // Now at e_shoff
@@ -61,20 +71,73 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	fseek(filePointer, header.e_shoff, SEEK_SET); // Now at section header table
 	currentLocation=header.e_shoff;
 	Elf64_Shdr currentSectionHeader;
+	Elf64_Shdr symbolTableSection;
+	Elf64_Shdr stringTableSection;
 	for(int i=0; i<header.e_shnum; i++){
 		fread(&currentSectionHeader.sh_name, sizeof(currentSectionHeader.sh_name), 1, filePointer); // read section name to progress file pointer
 		fread(&currentSectionHeader.sh_type, sizeof(currentSectionHeader.sh_type), 1, filePointer); // read section type
+		fread(&currentSectionHeader.sh_flags, sizeof(currentSectionHeader.sh_flags), 1, filePointer);
+		fread(&currentSectionHeader.sh_addr, sizeof(currentSectionHeader.sh_addr), 1, filePointer);
+		fread(&currentSectionHeader.sh_offset, sizeof(currentSectionHeader.sh_offset), 1, filePointer);
+		fread(&currentSectionHeader.sh_size, sizeof(currentSectionHeader.sh_size), 1, filePointer);
+		fread(&currentSectionHeader.sh_link, sizeof(currentSectionHeader.sh_link), 1, filePointer);
+		fread(&currentSectionHeader.sh_info, sizeof(currentSectionHeader.sh_info), 1, filePointer);
+		fread(&currentSectionHeader.sh_addralign, sizeof(currentSectionHeader.sh_addralign), 1, filePointer);
+		fread(&currentSectionHeader.sh_entsize, sizeof(currentSectionHeader.sh_entsize), 1, filePointer);
 		if(currentSectionHeader.sh_type == SHT_SYMTAB){ // check if section is a symbol table
-			break;
-		}else{
-			fseek(filePointer, sizeof(Elf64_Shdr), currentLocation); // if not continue to next section
-			currentLocation += sizeof(Elf64_Shdr);
+			symbolTableSection=currentSectionHeader;
+		}
+		if(currentSectionHeader.sh_type == SHT_STRTAB){ // Check if section is string table
+			stringTableSection=currentSectionHeader;
 		}
 	}
-	// Now currentSectionHeader is the Symbol Table, hopefully
-	printf("type of currentSectionHeader is %u\n", currentSectionHeader.sh_type);
+	// CurrentLocation is beginning of SymTab
+	currentLocation = symbolTableSection.sh_offset;
+	if(symbolTableSection.sh_entsize == 0){
+		printf("imashcha malca");
+		return -1;
+	}
+	int numOfSymbols = symbolTableSection.sh_size / symbolTableSection.sh_entsize;
 
-
+	// Looking for the symbol with the provided name
+	Elf64_Sym currentSymbol;
+	bool foundSymbol = false, foundGlobal=false;
+	for(int i=0; i < numOfSymbols; i++){
+		fread(&currentSymbol.st_name, sizeof(currentSymbol.st_name), 1, filePointer);
+		// find name in here
+		if(strcmp(currentSymbol.st_name, symbol_name) == 0){
+			foundSymbol=true;
+			fread(&currentSymbol.st_info, sizeof(currentSymbol.st_info), 1, filePointer);
+			if (ELF64_ST_BIND(currentSymbol.st_info)==STB_GLOBAL){
+				foundGlobal = true;
+				break;
+			}
+		}
+		fseek(filePointer, symbolTableSection.sh_entsize, currentLocation);
+		currentLocation += symbolTableSection.sh_entsize;
+	}
+	currentLocation += sizeof(currentSymbol.st_name) + sizeof(currentSymbol.st_info);
+	if (foundSymbol==false) {
+		*error_val=-1;
+		fclose(filePointer);
+		return -1;
+	}
+	if (foundGlobal == false){
+		*error_val = -2;
+		fclose(filePointer);
+		return -2;
+	}
+	// we found a global symbol
+	fread(&currentSymbol.st_other, sizeof(currentSymbol.st_other), 1, filePointer);
+	fread(&currentSymbol.st_shndx, sizeof(currentSymbol.st_shndx), 1, filePointer);
+	currentLocation += sizeof(currentSymbol.st_other) + sizeof(currentSymbol.st_shndx);
+	if (currentSymbol.st_shndx==SHN_UNDEF) {
+		*error_val=-4;
+		fclose(filePointer);
+		return -4;
+	}
+	*error_val = 1;
+	
 	fclose(filePointer);
 	return 0;
 }
