@@ -21,6 +21,8 @@
 #define	ET_DYN	3	//Shared object file 
 #define	ET_CORE	4	//Core file 
 
+#define SHT_SYMTAB 0x3
+
 
 /* symbol_name		- The symbol (maybe function) we need to search for.
  * exe_file_name	- The file where we search the symbol in.
@@ -32,9 +34,51 @@
  * return value		- The address which the symbol_name will be loaded to, if the symbol was found and is global.
  */
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
-	//TODO: Implement.	
+	FILE* filePointer=NULL;
+	filePointer = fopen(exe_file_name, "r");
+	if (filePointer==NULL) {
+		printf("failed to open");
+		return 0;
+	}
+	Elf64_Ehdr header;
+	int currentLocation = SEEK_SET;
+	fseek(filePointer, EI_NIDENT*sizeof(char), currentLocation); // Now at e_type
+	currentLocation += EI_NIDENT*sizeof(char);
+	fread(&header.e_type, sizeof(header.e_type), 1, filePointer);
+	currentLocation += sizeof(header.e_type);
+	if(header.e_type != ET_EXEC){
+		*error_val = -3;
+		return -3;
+	}
+	fseek(filePointer, 22, currentLocation); // Now at e_shoff
+	currentLocation += 22;
+	fread(&header.e_shoff, sizeof(header.e_shoff), 1, filePointer);
+	currentLocation+=sizeof(header.e_shoff);
+	fseek(filePointer, 12, currentLocation);
+	currentLocation += 12;
+	fread(&header.e_shnum, sizeof(header.e_shnum), 1, filePointer);
+	currentLocation += sizeof(header.e_shnum);
+	fseek(filePointer, header.e_shoff, SEEK_SET); // Now at section header table
+	currentLocation=header.e_shoff;
+	Elf64_Shdr currentSectionHeader;
+	for(int i=0; i<header.e_shnum; i++){
+		fread(&currentSectionHeader.sh_name, sizeof(currentSectionHeader.sh_name), 1, filePointer); // read section name to progress file pointer
+		fread(&currentSectionHeader.sh_type, sizeof(currentSectionHeader.sh_type), 1, filePointer); // read section type
+		if(currentSectionHeader.sh_type == SHT_SYMTAB){ // check if section is a symbol table
+			break;
+		}else{
+			fseek(filePointer, sizeof(Elf64_Shdr), currentLocation); // if not continue to next section
+			currentLocation += sizeof(Elf64_Shdr);
+		}
+	}
+	// Now currentSectionHeader is the Symbol Table, hopefully
+	printf("type of currentSectionHeader is %u\n", currentSectionHeader.sh_type);
+
+
+	fclose(filePointer);
 	return 0;
 }
+
 
 int main(int argc, char *const argv[]) {
 	int err = 0;
