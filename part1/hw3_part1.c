@@ -30,7 +30,7 @@
 TO DO:
 find the name of the symbol from strtab
 */ 
-
+bool compare(FILE* string1, char* string2);
 
 /* symbol_name		- The symbol (maybe function) we need to search for.
  * exe_file_name	- The file where we search the symbol in.
@@ -43,7 +43,9 @@ find the name of the symbol from strtab
  */
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
 	FILE* filePointer=NULL;
+	FILE* strtabPointer = NULL;
 	filePointer = fopen(exe_file_name, "r");
+	strtabPointer = fopen(exe_file_name, "r");
 	if (filePointer==NULL) {
 		printf("failed to open");
 		fclose(filePointer);
@@ -105,7 +107,8 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	for(int i=0; i < numOfSymbols; i++){
 		fread(&currentSymbol.st_name, sizeof(currentSymbol.st_name), 1, filePointer);
 		// find name in here
-		if(strcmp(currentSymbol.st_name, symbol_name) == 0){
+		fseek(strtabPointer, stringTableSection.sh_offset + currentSymbol.st_name, SEEK_SET);
+		if(compare(strtabPointer, symbol_name)){
 			foundSymbol=true;
 			fread(&currentSymbol.st_info, sizeof(currentSymbol.st_info), 1, filePointer);
 			if (ELF64_ST_BIND(currentSymbol.st_info)==STB_GLOBAL){
@@ -120,26 +123,46 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	if (foundSymbol==false) {
 		*error_val=-1;
 		fclose(filePointer);
+		fclose(strtabPointer);
 		return -1;
 	}
 	if (foundGlobal == false){
 		*error_val = -2;
 		fclose(filePointer);
+		fclose(strtabPointer);
 		return -2;
 	}
-	// we found a global symbol
+	// we found a global symbol yayyyyyyyyyyy
 	fread(&currentSymbol.st_other, sizeof(currentSymbol.st_other), 1, filePointer);
 	fread(&currentSymbol.st_shndx, sizeof(currentSymbol.st_shndx), 1, filePointer);
 	currentLocation += sizeof(currentSymbol.st_other) + sizeof(currentSymbol.st_shndx);
 	if (currentSymbol.st_shndx==SHN_UNDEF) {
 		*error_val=-4;
 		fclose(filePointer);
+		fclose(strtabPointer);
 		return -4;
 	}
 	*error_val = 1;
 	
 	fclose(filePointer);
+	fclose(strtabPointer);
 	return 0;
+}
+
+bool compare(FILE* string1, char* string2){
+	char c = fgetc(string1);
+	int index = 0;
+	while(c != '\0' || string2[index] != '\0'){
+		if(c != string2[index]){
+			return false;
+		}
+		index++;
+		c = fgetc(string1);
+	}
+	if(c == '\0' && string2[index] == '\0'){
+		return true;
+	}
+	return false;
 }
 
 
