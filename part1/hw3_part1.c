@@ -26,10 +26,7 @@
 #define STB_GLOBAL 1
 #define STB_LOCAL 0
 
-/*
-TO DO:
-find the name of the symbol from strtab
-*/ 
+
 bool compare(FILE* string1, char* string2);
 
 /* symbol_name		- The symbol (maybe function) we need to search for.
@@ -53,26 +50,12 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	}
 	Elf64_Ehdr header;
 	fread(&header, sizeof(Elf64_Ehdr), 1, filePointer);
-	// int currentLocation = SEEK_SET;
-	// fseek(filePointer, EI_NIDENT*sizeof(char), currentLocation); // Now at e_type
-	// currentLocation += EI_NIDENT*sizeof(char);
-	// fread(&header.e_type, sizeof(header.e_type), 1, filePointer);
-	// currentLocation += sizeof(header.e_type);
+	
 	if(header.e_type != ET_EXEC){
 		*error_val = -3;
 		fclose(filePointer);
 		return 0;
 	}
-
-	// fseek(filePointer, 22, currentLocation); // Now at e_shoff
-	// currentLocation += 22;
-	// fread(&header.e_shoff, sizeof(header.e_shoff), 1, filePointer);
-	// currentLocation+=sizeof(header.e_shoff);
-	// fseek(filePointer, 12, currentLocation);
-	// currentLocation += 12;
-	// fread(&header.e_shnum, sizeof(header.e_shnum), 1, filePointer);
-	// currentLocation += sizeof(header.e_shnum);
-	// fseek(filePointer, header.e_shoff, SEEK_SET); // Now at section header table
 	int currentLocation=header.e_shoff;
 	fseek(filePointer, currentLocation, SEEK_SET);
 	Elf64_Shdr currentSectionHeader;
@@ -102,19 +85,6 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 			memcpy(&symbolTableSection.sh_addralign, &currentSectionHeader.sh_addralign, sizeof(currentSectionHeader.sh_addralign));
 			memcpy(&symbolTableSection.sh_entsize, &currentSectionHeader.sh_entsize, sizeof(currentSectionHeader.sh_entsize));
 		}
-		if(currentSectionHeader.sh_type == SHT_STRTAB){ // Check if section is string table
-			// stringTableSection=currentSectionHeader;
-			memcpy(&stringTableSection.sh_name, &currentSectionHeader.sh_name, sizeof(currentSectionHeader.sh_name));
-			memcpy(&stringTableSection.sh_type, &currentSectionHeader.sh_type, sizeof(currentSectionHeader.sh_type));
-			memcpy(&stringTableSection.sh_flags, &currentSectionHeader.sh_flags, sizeof(currentSectionHeader.sh_flags));
-			memcpy(&stringTableSection.sh_addr, &currentSectionHeader.sh_addr, sizeof(currentSectionHeader.sh_addr));
-			memcpy(&stringTableSection.sh_offset, &currentSectionHeader.sh_offset, sizeof(currentSectionHeader.sh_offset));
-			memcpy(&stringTableSection.sh_size, &currentSectionHeader.sh_size, sizeof(currentSectionHeader.sh_size));
-			memcpy(&stringTableSection.sh_link, &currentSectionHeader.sh_link, sizeof(currentSectionHeader.sh_link));
-			memcpy(&stringTableSection.sh_info, &currentSectionHeader.sh_info, sizeof(currentSectionHeader.sh_info));
-			memcpy(&stringTableSection.sh_addralign, &currentSectionHeader.sh_addralign, sizeof(currentSectionHeader.sh_addralign));
-			memcpy(&stringTableSection.sh_entsize, &currentSectionHeader.sh_entsize, sizeof(currentSectionHeader.sh_entsize));
-		}
 	}
 	// CurrentLocation is beginning of SymTab
 	currentLocation = symbolTableSection.sh_offset;
@@ -133,19 +103,16 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		fread(&currentSymbol.st_value, sizeof(currentSymbol.st_value), 1, filePointer);
 		fread(&currentSymbol.st_size, sizeof(currentSymbol.st_size), 1, filePointer);
 
-		fseek(strtabPointer, stringTableSection.sh_offset + currentSymbol.st_name, SEEK_SET);
+		fseek(strtabPointer, symbolTableSection.sh_offset + symbolTableSection.sh_size + currentSymbol.st_name, SEEK_SET);
 		if(compare(strtabPointer, symbol_name)){
 			foundSymbol=true;
-			// fread(&currentSymbol.st_info, sizeof(currentSymbol.st_info), 1, filePointer);
 			if (ELF64_ST_BIND(currentSymbol.st_info)==STB_GLOBAL){
 				foundGlobal = true;
 				break;
 			}
 		}
-		// fseek(filePointer, symbolTableSection.sh_entsize, currentLocation);
 		currentLocation += symbolTableSection.sh_entsize;
 	}
-	// currentLocation += sizeof(currentSymbol.st_name) + sizeof(currentSymbol.st_info);
 	if (foundSymbol==false) {
 		*error_val=-1;
 		fclose(filePointer);
@@ -159,9 +126,6 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		return 0;
 	}
 	// we found a global symbol yayyyyyyyyyyy
-	// fread(&currentSymbol.st_other, sizeof(currentSymbol.st_other), 1, filePointer);
-	// fread(&currentSymbol.st_shndx, sizeof(currentSymbol.st_shndx), 1, filePointer);
-	// currentLocation += sizeof(currentSymbol.st_other) + sizeof(currentSymbol.st_shndx);
 	if (currentSymbol.st_shndx==SHN_UNDEF) {
 		*error_val=-4;
 		fclose(filePointer);
@@ -176,19 +140,19 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 }
 
 bool compare(FILE* string1, char* string2){
-	printf("comparing.\n");
+	char* tempString = string2;
 	char c = fgetc(string1);
-	int index = 0;
-	while(c != '\0' || string2[index] != '\0'){
-		printf("%c\n", c);
-		printf("%c\n", string2[index]);
-		if(c != string2[index]){
+	if(tempString == NULL  || string1 == NULL){
+		return false;
+	}
+	while(c != '\0' || *tempString != '\0'){
+		if(c != *tempString){
 			return false;
 		}
-		index++;
+		++tempString;
 		c = fgetc(string1);
 	}
-	if(c == '\0' && string2[index] == '\0'){
+	if(c == '\0' && *tempString == '\0'){
 		return true;
 	}
 	return false;
