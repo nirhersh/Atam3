@@ -1,31 +1,5 @@
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <syscall.h>
-#include <sys/ptrace.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/reg.h>
-#include <sys/user.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <stdbool.h>
-
+#include "Debugger.h"
 #include "elf64.h"
-
-#define	ET_NONE	0	//No file type 
-#define	ET_REL	1	//Relocatable file 
-#define	ET_EXEC	2	//Executable file 
-#define	ET_DYN	3	//Shared object file 
-#define	ET_CORE	4	//Core file 
-
-#define SHT_SYMTAB 0x2
-#define SHT_STRTAB 0x3
-#define STB_GLOBAL 1
-#define STB_LOCAL 0
-
 
 bool compare(FILE* string1, char* string2);
 
@@ -41,8 +15,12 @@ bool compare(FILE* string1, char* string2);
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
 	FILE* filePointer=NULL;
 	FILE* strtabPointer = NULL;
+	FILE* relaPointer = NULL;
+	FILE* symbolTablePointer = NULL;
 	filePointer = fopen(exe_file_name, "rb");
 	strtabPointer = fopen(exe_file_name, "rb");
+	relaPointer = fopen(exe_file_name, "rb");
+	symbolTablePointer = fopen(exe_file_name, "rb");
 	if (filePointer==NULL) {
 		printf("failed to open");
 		fclose(filePointer);
@@ -54,6 +32,9 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	if(header.e_type != ET_EXEC){
 		*error_val = -3;
 		fclose(filePointer);
+		fclose(strtabPointer);
+		fclose(relaPointer);
+		fclose(symbolTablePointer);
 		return 0;
 	}
 	int currentLocation=header.e_shoff;
@@ -61,6 +42,11 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	Elf64_Shdr currentSectionHeader;
 	Elf64_Shdr symbolTableSection;
 	Elf64_Shdr stringTableSection;
+	Elf64_Shdr dynamicSymbolTableSection;
+	Elf64_Shdr relaSection;
+	Elf64_Addr relaOffset;
+	Elf64_Shdr* shdrs = malloc(sizeof(Elf64_Shdr) * header.e_shnum);
+	read(filePointer, shdrs, sizeof(Elf64_Shdr) * header.e_shnum);
 	for(int i=0; i<header.e_shnum; i++){
 		fread(&currentSectionHeader.sh_name, sizeof(currentSectionHeader.sh_name), 1, filePointer); // read section name to progress file pointer
 		fread(&currentSectionHeader.sh_type, sizeof(currentSectionHeader.sh_type), 1, filePointer); // read section type
@@ -84,6 +70,29 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 			memcpy(&symbolTableSection.sh_info, &currentSectionHeader.sh_info, sizeof(currentSectionHeader.sh_info));
 			memcpy(&symbolTableSection.sh_addralign, &currentSectionHeader.sh_addralign, sizeof(currentSectionHeader.sh_addralign));
 			memcpy(&symbolTableSection.sh_entsize, &currentSectionHeader.sh_entsize, sizeof(currentSectionHeader.sh_entsize));
+		}
+		if(currentSectionHeader.sh_type == SHT_DYNSYM){
+			dynamicSymbolTableSection=currentSectionHeader;
+		}
+		if(currentSectionHeader.sh_type == SHT_RELA){
+			relaSection = currentSectionHeader;
+			Elf64_Shdr symTab = shdrs[relaSection.sh_link];
+			Elf64_Shdr strTab = shdrs[symTab.sh_link];
+			int numOfEntries = relaSection.sh_size / relaSection.sh_entsize; 
+			fseek(relaPointer, relaSection.sh_offset, SEEK_SET);
+			
+			Elf64_Rela current_rela;
+			for(int j=0; j<(numOfEntries); j++){
+				fread(&current_rela, sizeof(current_rela), 1, relaPointer);
+				int index = ELF64_R_SYM(current_rela.r_info);
+				Elf64_Sym current_symbol;
+				fseek(symbolTablePointer, symTab.sh_offset + index*symTab.sh_entsize, SEEK_SET);
+				fread(&current_symbol, sizeof(current_symbol), 1, symbolTablePointer);
+				fseek(symbolTablePointer, strTab.sh_offset + current_symbol.st_name, SEEK_SET);
+				if(compare(symbolTablePointer, symbol_name)){
+					relaOffset=current_rela.r_offset;
+				}
+			}
 		}
 	}
 	// CurrentLocation is beginning of SymTab
@@ -117,25 +126,33 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		*error_val=-1;
 		fclose(filePointer);
 		fclose(strtabPointer);
-		return 0;
+		fclose(relaPointer);
+		fclose(symbolTablePointer);		return 0;
 	}
 	if (foundGlobal == false){
 		*error_val = -2;
 		fclose(filePointer);
+		fcolse(relaPointer);
+		fclose(symbol_name);
 		fclose(strtabPointer);
 		return 0;
 	}
 	// we found a global symbol yayyyyyyyyyyy
 	if (currentSymbol.st_shndx==SHN_UNDEF) {
 		*error_val=-4;
+		
 		fclose(filePointer);
 		fclose(strtabPointer);
-		return 0;
+		fcolse(relaPointer);
+		fclose(symbol_name);
+		return relaOffset;
 	}
 	*error_val = 1;
 	
 	fclose(filePointer);
 	fclose(strtabPointer);
+	fcolse(relaPointer);
+	fclose(symbol_name);
 	return currentSymbol.st_value;
 }
 
@@ -159,7 +176,7 @@ bool compare(FILE* string1, char* string2){
 }
 
 
-int main(int argc, char *const argv[]) {
+int main_hw3(int argc, char *const argv[]) {
 	int err = 0;
 	unsigned long addr = find_symbol(argv[1], argv[2], &err);
 
