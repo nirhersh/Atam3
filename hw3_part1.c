@@ -23,7 +23,6 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	symbolTablePointer = fopen(exe_file_name, "rb");
 	if (filePointer==NULL) {
 		printf("failed to open");
-		fclose(filePointer);
 		return 0;
 	}
 	Elf64_Ehdr header;
@@ -94,6 +93,7 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 				fseek(symbolTablePointer, strTab.sh_offset + current_symbol.st_name, SEEK_SET);
 				if(compare(symbolTablePointer, symbol_name)){
 					relaOffset=current_rela.r_offset;
+					break;
 				}
 			}
 		}
@@ -149,7 +149,7 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		fclose(strtabPointer);
 		fclose(relaPointer);
 		fclose(symbolTablePointer);
-		return relaOffset;
+		return (unsigned long)(relaOffset);
 	}
 	*error_val = 1;
 	
@@ -177,24 +177,6 @@ bool compare(FILE* string1, char* string2){
 		return true;
 	}
 	return false;
-}
-
-
-int main_hw3(int argc, char *const argv[]) {
-	int err = 0;
-	unsigned long addr = find_symbol(argv[1], argv[2], &err);
-
-	if (addr > 0)
-		printf("%s will be loaded to 0x%lx\n", argv[1], addr);
-	else if (err == -2)
-		printf("%s is not a global symbol! :(\n", argv[1]);
-	else if (err == -1)
-		printf("%s not found!\n", argv[1]);
-	else if (err == -3)
-		printf("%s not an executable! :(\n", argv[2]);
-	else if (err == -4)
-		printf("%s is a global symbol, but will come from a shared library\n", argv[1]);
-	return 0;
 }
 
 
