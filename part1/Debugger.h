@@ -32,6 +32,8 @@
 #define SHT_REL 0x9
 #define SHT_RELA 0x4
 
+#define PREFIX "PRF::"
+
 bool compare(FILE* string1, char* string2);
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val);
 

@@ -46,7 +46,10 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 	Elf64_Shdr relaSection;
 	Elf64_Addr relaOffset;
 	Elf64_Shdr* shdrs = malloc(sizeof(Elf64_Shdr) * header.e_shnum);
-	read(filePointer, shdrs, sizeof(Elf64_Shdr) * header.e_shnum);
+	for(int i=0; i<header.e_shnum; i++){
+		fread(&shdrs[i], sizeof(Elf64_Shdr), 1, filePointer);
+	}
+	fseek(filePointer, currentLocation, SEEK_SET);
 	for(int i=0; i<header.e_shnum; i++){
 		fread(&currentSectionHeader.sh_name, sizeof(currentSectionHeader.sh_name), 1, filePointer); // read section name to progress file pointer
 		fread(&currentSectionHeader.sh_type, sizeof(currentSectionHeader.sh_type), 1, filePointer); // read section type
@@ -127,13 +130,14 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		fclose(filePointer);
 		fclose(strtabPointer);
 		fclose(relaPointer);
-		fclose(symbolTablePointer);		return 0;
+		fclose(symbolTablePointer);
+		return 0;
 	}
 	if (foundGlobal == false){
 		*error_val = -2;
 		fclose(filePointer);
-		fcolse(relaPointer);
-		fclose(symbol_name);
+		fclose(relaPointer);
+		fclose(symbolTablePointer);
 		fclose(strtabPointer);
 		return 0;
 	}
@@ -143,16 +147,16 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
 		
 		fclose(filePointer);
 		fclose(strtabPointer);
-		fcolse(relaPointer);
-		fclose(symbol_name);
+		fclose(relaPointer);
+		fclose(symbolTablePointer);
 		return relaOffset;
 	}
 	*error_val = 1;
 	
 	fclose(filePointer);
 	fclose(strtabPointer);
-	fcolse(relaPointer);
-	fclose(symbol_name);
+	fclose(relaPointer);
+	fclose(symbolTablePointer);
 	return currentSymbol.st_value;
 }
 
@@ -192,3 +196,15 @@ int main_hw3(int argc, char *const argv[]) {
 		printf("%s is a global symbol, but will come from a shared library\n", argv[1]);
 	return 0;
 }
+
+
+/*
+1: goto symbol table like 3a, find him to be undefined
+2: goto dynsym
+3: search (same way like symtable) the symbol by name
+4: read the name, find the literal index in dynsym. (index in table)
+5: goto rela.plt (no names there)
+6: using the macro, find the index
+7: return the offset.
+
+*/
